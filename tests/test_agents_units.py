@@ -1,5 +1,5 @@
 from unittest.mock import MagicMock
-from lang_chain_project_docker.main import run_agents_based_on_keywords,statistics_agent_instance,prediction_agent_instance
+from main import run_agents_based_on_keywords,statistics_agent_instance,prediction_agent_instance
 from types import SimpleNamespace
 
 

@@ -6,12 +6,12 @@ from langchain_groq import ChatGroq
 from langchain_core.vectorstores import InMemoryVectorStore
 import pandas as pd 
 from langchain_core.documents import Document
-from lang_chain_project_docker.tools.commentary_tool import get_commentary_tool
-from lang_chain_project_docker.tools.player_tool import get_player_stat_tool
-from lang_chain_project_docker.tools.top_scorer_tool import get_top_scorer
-from lang_chain_project_docker.agents.stats_agent import statistics_agent
-from lang_chain_project_docker.agents.prediction_agent import prediction_agent
-from lang_chain_project_docker.download_data import download
+from tools.commentary_tool import get_commentary_tool
+from tools.player_tool import get_player_stat_tool
+from tools.top_scorer_tool import get_top_scorer
+from agents.stats_agent import statistics_agent
+from agents.prediction_agent import prediction_agent
+from download_data import download
 from langchain_ollama.llms import OllamaLLM
 import streamlit as stlit
 

@@ -1,9 +1,9 @@
 from unittest.mock import patch
-from lang_chain_project_docker.main import run_agents_based_on_keywords
+from main import run_agents_based_on_keywords
 from types import SimpleNamespace
 
-@patch("lang_chain_project_docker.main.statistics_agent_instance.stream")
-@patch("lang_chain_project_docker.main.prediction_agent_instance.stream")
+@patch("main.statistics_agent_instance.stream")
+@patch("main.prediction_agent_instance.stream")
 def test_smoke_agents(mock_prediction, mock_stats):
     # Mock return values so it doesn't call real APIs
     mock_stats.return_value=[{"messages": [SimpleNamespace(content="Stats result")]}]
