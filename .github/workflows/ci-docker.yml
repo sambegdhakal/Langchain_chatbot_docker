@@ -45,4 +45,6 @@ jobs:
         with:
           context: .
           push: true
-          tags: yourdockerhubusername/your_project:latest
+          tags: |
+            sambegdhakal/langchain-fotbot-app:latest
+            sambegdhakal/langchain-fotbot-app:${{ github.sha }}

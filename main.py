@@ -1,18 +1,13 @@
 import os
 import sys
 import pandas as pd
-from types import SimpleNamespace
 from dotenv import load_dotenv
 import streamlit as stlit
-
-# LangChain imports
 from langchain_ollama import OllamaEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.vectorstores import InMemoryVectorStore
 from langchain_core.documents import Document
 from langchain_ollama.llms import OllamaLLM
-
-# Tools & agents
 from tools.commentary_tool import get_commentary_tool
 from tools.player_tool import get_player_stat_tool
 from tools.top_scorer_tool import get_top_scorer
@@ -113,36 +108,52 @@ def initialize_agents(run_checks=True, nrows_commentary=50):
 
 
 def run_agents_based_on_keywords(query: str):
-    """
-    Run statistics agent always. Run prediction agent only if query contains
-    certain keywords indicating forecasts.
-    """
+    # Ensure agents are initialized
+    if "statistics_agent_instance" not in stlit.session_state or \
+       stlit.session_state.statistics_agent_instance is None:
+        stlit.error("Agents are not initialized yet.")
+        return "Error: Agents not initialized."
+    
+    statistics_agent_instance = stlit.session_state.statistics_agent_instance
+    prediction_agent_instance = stlit.session_state.prediction_agent_instance
     config = {"max_retries": 0}
+    
+    # Keywords to decide if prediction is needed
     prediction_keywords = ["expect", "predict", "future", "forecast", "likely", "projection", "next"]
-
-    # Determine if prediction agent should run
     run_prediction = any(keyword.lower() in query.lower() for keyword in prediction_keywords)
 
-    # Combine previous chat history with current query
+    #Run statistics agent
     messages = stlit.session_state.chat_history + [{"role": "user", "content": query}]
     stats_messages = []
-
-    # Run statistics agent
     for event in statistics_agent_instance.stream({"messages": messages}, config=config, stream_mode="values"):
         stats_messages.extend(event.get("messages", []))
 
     if not stats_messages:
         return "No statistics available."
 
-    # Run prediction agent if needed
+    stats_content = stats_messages[-1].content
+
+    #if prediction keywords seen
     if run_prediction:
         prediction_messages = []
-        for event in prediction_agent_instance.stream({"messages": stats_messages}, config=config, stream_mode="values"):
+        
+        # Combine stats output with user query
+        prediction_input = [
+            {"role": "user", "content": stats_content},
+            {"role": "user", "content": query}
+        ]
+
+        for event in prediction_agent_instance.stream({"messages": prediction_input}, 
+                                                      config=config, stream_mode="values"):
             prediction_messages.extend(event.get("messages", []))
 
-        return prediction_messages[-1].content if prediction_messages else "No prediction available."
+        result = prediction_messages[-1].content if prediction_messages else "No prediction available."
+        stlit.session_state.chat_history.append({"role": "assistant", "content": result})
+        return result
     else:
-        return stats_messages[-1].content
+        # If no prediction, just return stats
+        stlit.session_state.chat_history.append({"role": "assistant", "content": stats_content})
+        return stats_content
 
 
 def run_streamlit():
@@ -180,7 +191,15 @@ def run_streamlit():
 
 
 if __name__ == "__main__":
-    # Only run checks when executing Streamlit
-    os.environ["RUNNING_STREAMLIT"] = "1"
-    initialize_agents(run_checks=True)
+    # Initialize agents only once
+    if "agents_initialized" not in stlit.session_state:
+        initialize_agents(run_checks=True)
+        
+        # Save the initialized agents and vector store to session_state
+        stlit.session_state.statistics_agent_instance = statistics_agent_instance
+        stlit.session_state.prediction_agent_instance = prediction_agent_instance
+        stlit.session_state.vector_store = vector_store
+        
+        stlit.session_state.agents_initialized = True
+
     run_streamlit()
