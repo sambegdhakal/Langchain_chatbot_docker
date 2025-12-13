@@ -1,0 +1,7 @@
+.env
+datasets/
+.git
+.gitignore
+__pycache__/
+.pytest_cache/
+venv/

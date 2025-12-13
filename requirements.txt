@@ -1,0 +1,12 @@
+langchain 
+langchain-text-splitters 
+langchain-community
+langchain-groq
+langchain-ollama
+python-dotenv
+langchain-core
+pandas
+streamlit
+pytest
+kagglehub
+
