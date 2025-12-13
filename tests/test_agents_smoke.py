@@ -1,14 +1,22 @@
-from unittest.mock import patch
-from main import run_agents_based_on_keywords
+# tests/test_agents_smoke.py
+from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 
-@patch("main.statistics_agent_instance.stream")
-@patch("main.prediction_agent_instance.stream")
-def test_smoke_agents(mock_prediction, mock_stats):
-    # Mock return values so it doesn't call real APIs
-    mock_stats.return_value=[{"messages": [SimpleNamespace(content="Stats result")]}]
-    mock_prediction.return_value = [{"messages": [SimpleNamespace(content="Stats result")]}]
+# Patch agent instances BEFORE importing main
+with patch("main.statistics_agent_instance") as MockStatsAgent, \
+     patch("main.prediction_agent_instance") as MockPredictionAgent:
 
-    # Run agents — just ensure they don't raise exceptions
+    # Mock the .stream method for both agents
+    MockStatsAgent.stream.return_value = [{"messages": [SimpleNamespace(content="Stats result")]}]
+    MockPredictionAgent.stream.return_value = [{"messages": [SimpleNamespace(content="Prediction result")]}]
+
+    # Import the function after patching
+    from main import run_agents_based_on_keywords
+
+def test_smoke_statistics_agent():
+    """Smoke test: run statistics agent only"""
     run_agents_based_on_keywords("show me player stats")
+
+def test_smoke_prediction_agent():
+    """Smoke test: run prediction agent with keywords"""
     run_agents_based_on_keywords("who will likely score?")

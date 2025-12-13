@@ -26,12 +26,6 @@ vector_store = None
 
 
 def initialize_agents(run_checks=True, nrows_commentary=50):
-    """
-    Initialize embeddings, vector store, tools, and agents.
-    Parameters:
-        run_checks: If True, will check for .env and datasets (for Streamlit).
-        nrows_commentary: number of rows to read from commentary CSV (useful for testing)
-    """
     global statistics_agent_instance, prediction_agent_instance, vector_store
 
     # Only run these checks if Streamlit is running

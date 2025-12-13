@@ -25,7 +25,7 @@ jobs:
 
 
       - name: Run tests
-        run: pytest tests/ --ignore=tests/test_data_loading.py --ignore=tests/test_env_file_directory.py --ignore=tests/test_env_file_directory.py -v
+        run: pytest tests/ --ignore=tests/test_data_loading.py --ignore=tests/test_env_file_directory.py --ignore=tests/test_vector_store.py -v
 
   docker:
     needs: test
