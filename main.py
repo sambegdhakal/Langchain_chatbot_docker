@@ -1,148 +1,121 @@
 import os
 import sys
-from langchain_ollama import OllamaEmbeddings
+import pandas as pd
+from types import SimpleNamespace
 from dotenv import load_dotenv
+import streamlit as stlit
+
+# LangChain imports
+from langchain_ollama import OllamaEmbeddings
 from langchain_groq import ChatGroq
 from langchain_core.vectorstores import InMemoryVectorStore
-import pandas as pd 
 from langchain_core.documents import Document
+from langchain_ollama.llms import OllamaLLM
+
+# Tools & agents
 from tools.commentary_tool import get_commentary_tool
 from tools.player_tool import get_player_stat_tool
 from tools.top_scorer_tool import get_top_scorer
 from agents.stats_agent import statistics_agent
 from agents.prediction_agent import prediction_agent
-from download_data import download
-from langchain_ollama.llms import OllamaLLM
-import streamlit as stlit
 
-# Check if .env exists
-if not os.path.exists(".env"):
-    stlit.error("❌ Missing .env file. Some features may not work.")
-    stlit.stop() 
-
-# Check if datasets folder exists
-required_dataset_paths = [
-    "datasets/commentary_data",
-    "datasets/playerStats_data",
-    "datasets/base_data"
-]
-
-for path in required_dataset_paths:
-    if not os.path.exists(path):
-        stlit.error(f"❌ Error: Required dataset folder missing: {path}\nPlease provide your datasets.")
-        stlit.stop()
-
-#download data
-#download()
-
-#loading environment variables
-load_dotenv()
-
-# page setup
-stlit.set_page_config(
-    page_title="Fotbot",
-    page_icon="⚽",
-    layout="centered",
-)
-stlit.title("💬⚽ Soccer stats and prediction")
-
-# initiate chat history
-if "chat_history" not in stlit.session_state:
-    stlit.session_state.chat_history = []
-
-# show chat history
-for message in stlit.session_state.chat_history:
-    with stlit.chat_message(message["role"]):
-        stlit.markdown(message["content"])
-
-#storing groq_key
-groq_key = os.getenv("GROQ_API_KEY")
-
-#defining first model from GROQ for statistics
-llm_statistics = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_key, max_tokens=512)
-
-#defining second model either from GROQ or Ollama for predictions, I can switch between models without worrying about underlying framework
-#llm_predictions =  OllamaLLM(model="qwen3:4b")
-llm_predictions = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_key, max_tokens=512)
+# Globals to be initialized
+statistics_agent_instance = None
+prediction_agent_instance = None
+vector_store = None
 
 
-# Embeddings; using Ollama
-embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+def initialize_agents(run_checks=True, nrows_commentary=50):
+    """
+    Initialize embeddings, vector store, tools, and agents.
+    Parameters:
+        run_checks: If True, will check for .env and datasets (for Streamlit).
+        nrows_commentary: number of rows to read from commentary CSV (useful for testing)
+    """
+    global statistics_agent_instance, prediction_agent_instance, vector_store
 
-# creating a vector store
-vector_store = InMemoryVectorStore(embeddings)
+    # Only run these checks if Streamlit is running
+    if run_checks:
+        # Check if .env exists
+        if not os.path.exists(".env"):
+            stlit.error("❌ Missing .env file. Some features may not work.")
+            stlit.stop()
 
-# Loading commentry CSV file using pandas
-df = pd.read_csv("datasets/commentary_data/commentary_2025_ENG.1.csv",nrows=50,
-    usecols=["commentaryText"])
+        # Check required dataset folders
+        required_dataset_paths = [
+            "datasets/commentary_data",
+            "datasets/playerStats_data",
+            "datasets/base_data"
+        ]
+        for path in required_dataset_paths:
+            if not os.path.exists(path):
+                stlit.error(f"❌ Error: Required dataset folder missing: {path}\nPlease provide your datasets.")
+                stlit.stop()
 
-# df = pd.read_csv("datasets/commentary_data/commentary_2025_ENG.1.csv",
-#     usecols=["commentaryText"])
+    # Load environment variables
+    load_dotenv()
 
-#load files for player stats
-playerstats_df = pd.read_csv("datasets/playerStats_data/playerStats_2025_ENG.1.csv")
-player_df = pd.read_csv("datasets/base_data/players.csv", low_memory=False)
-team_df = pd.read_csv("datasets/base_data/teams.csv")
+    # GROQ API key
+    groq_key = os.getenv("GROQ_API_KEY")
 
-# Merge player stats with player info
-merged_df = playerstats_df.merge(player_df, on="athleteId", how="left")
+    # Initialize LLMs
+    llm_statistics = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_key, max_tokens=512)
+    llm_predictions = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_key, max_tokens=512)
+    # Alternative: llm_predictions = OllamaLLM(model="qwen3:4b")
 
-# Merge with team info
-merged_df = merged_df.merge(team_df, on="teamId", how="left")
+    # Embeddings & vector store
+    embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+    vector_store = InMemoryVectorStore(embeddings)
 
-# selected columns from player and the team
-player_info_cols = []
-for col in ['fullName','name', 'abbreviation', 'displayName']:
-    if col in merged_df.columns:
-        player_info_cols.append(col)
-
-# Keep only desired columns: player & team info + stats from playerstats_df
-stats_columns = [col for col in playerstats_df.columns if col not in ['athleteId','teamId', 'timestamp']]
-final_stats_df = merged_df[player_info_cols + stats_columns]
-
-
-# selecting only column from the commentary csv
-selected_column = "commentaryText"
-texts = df[selected_column].dropna().tolist()
-
-# Converting each row of commentry into a LangChain Document
-docs_commentary = [
-    Document(
-        page_content=text,
-        metadata={"row": idx, "source": "commentary_2025_ENG.1.csv"}
+    # Load CSVs
+    df_commentary = pd.read_csv(
+        "datasets/commentary_data/commentary_2025_ENG.1.csv",
+        nrows=nrows_commentary,
+        usecols=["commentaryText"]
     )
-    for idx, text in enumerate(texts)
-]
+    df_playerstats = pd.read_csv("datasets/playerStats_data/playerStats_2025_ENG.1.csv")
+    df_players = pd.read_csv("datasets/base_data/players.csv", low_memory=False)
+    df_teams = pd.read_csv("datasets/base_data/teams.csv")
 
-# Converting each row of palyer stats into a langchain Document
-docs_stats = [
-    Document(
-        page_content="\n".join(f"{col}: {row[col]}" for col in final_stats_df.columns),
-        metadata={
-            "row": idx,
-            "source": "playerStats_2025_ENG.1.csv"
-        }
-    )
-    for idx, row in final_stats_df.iterrows()
-]
+    # Merge player stats with player info
+    merged_df = df_playerstats.merge(df_players, on="athleteId", how="left")
+    merged_df = merged_df.merge(df_teams, on="teamId", how="left")
 
-#add documents to vector store
-vector_store.add_documents(docs_commentary)
-vector_store.add_documents(docs_stats)
+    # Select columns
+    player_info_cols = [col for col in ['fullName','name', 'abbreviation', 'displayName'] if col in merged_df.columns]
+    stats_columns = [col for col in df_playerstats.columns if col not in ['athleteId','teamId','timestamp']]
+    final_stats_df = merged_df[player_info_cols + stats_columns]
 
-#intializing tools
-commentary_tool=get_commentary_tool(vector_store,docs_commentary)
-player_stats_tool=get_player_stat_tool(vector_store,docs_stats)
-top_scorer_tool=get_top_scorer(final_stats_df)
+    # Convert commentary to LangChain Documents
+    docs_commentary = [
+        Document(page_content=text, metadata={"row": idx, "source": "commentary_2025_ENG.1.csv"})
+        for idx, text in enumerate(df_commentary["commentaryText"].dropna().tolist())
+    ]
 
-tools_stats = [commentary_tool,player_stats_tool,top_scorer_tool]
-tools_predict=[]
+    # Convert player stats to Documents
+    docs_stats = [
+        Document(
+            page_content="\n".join(f"{col}: {row[col]}" for col in final_stats_df.columns),
+            metadata={"row": idx, "source": "playerStats_2025_ENG.1.csv"}
+        )
+        for idx, row in final_stats_df.iterrows()
+    ]
 
+    # Add documents to vector store
+    vector_store.add_documents(docs_commentary)
+    vector_store.add_documents(docs_stats)
 
-#Initializing Agents
-statistics_agent_instance = statistics_agent(tools=tools_stats, llm=llm_statistics)
-prediction_agent_instance=prediction_agent(tools=tools_predict, llm=llm_predictions)
+    # Initialize tools
+    commentary_tool = get_commentary_tool(vector_store, docs_commentary)
+    player_stats_tool = get_player_stat_tool(vector_store, docs_stats)
+    top_scorer_tool = get_top_scorer(final_stats_df)
 
+    tools_stats = [commentary_tool, player_stats_tool, top_scorer_tool]
+    tools_predict = []
+
+    # Initialize agents
+    statistics_agent_instance = statistics_agent(tools=tools_stats, llm=llm_statistics)
+    prediction_agent_instance = prediction_agent(tools=tools_predict, llm=llm_predictions)
 
 
 def run_agents_based_on_keywords(query: str):
@@ -151,64 +124,69 @@ def run_agents_based_on_keywords(query: str):
     certain keywords indicating forecasts.
     """
     config = {"max_retries": 0}
-
-    # Keywords indicating prediction/future analysis
     prediction_keywords = ["expect", "predict", "future", "forecast", "likely", "projection", "next"]
 
-    # Check if any keyword exists in the query (case-insensitive)
+    # Determine if prediction agent should run
     run_prediction = any(keyword.lower() in query.lower() for keyword in prediction_keywords)
 
-    # Combine previous chat history with the current user query
+    # Combine previous chat history with current query
     messages = stlit.session_state.chat_history + [{"role": "user", "content": query}]
     stats_messages = []
 
-    #running statistics_agent with query
-    for event in statistics_agent_instance.stream(
-        {"messages": messages},
-        config=config,
-        stream_mode="values",
-    ):
-        # accumulate messages
+    # Run statistics agent
+    for event in statistics_agent_instance.stream({"messages": messages}, config=config, stream_mode="values"):
         stats_messages.extend(event.get("messages", []))
 
     if not stats_messages:
         return "No statistics available."
-    
-    # Running prediction agent with statistics output
+
+    # Run prediction agent if needed
     if run_prediction:
         prediction_messages = []
-        for event in prediction_agent_instance.stream(
-            {"messages": stats_messages},
-            config=config,
-            stream_mode="values",
-        ):
+        for event in prediction_agent_instance.stream({"messages": stats_messages}, config=config, stream_mode="values"):
             prediction_messages.extend(event.get("messages", []))
 
-        if prediction_messages:
-            return prediction_messages[-1].content
-        else:
-            return "No prediction available."
-
+        return prediction_messages[-1].content if prediction_messages else "No prediction available."
     else:
-        #if prediction is not needed only print stats message
         return stats_messages[-1].content
 
-user_prompt = stlit.chat_input("Ask Fotbot ⚽⚽⚽")
 
-if user_prompt:
-    # Display user message
-    with stlit.chat_message("user"):
-        stlit.markdown(user_prompt)
+def run_streamlit():
+    """Run the Streamlit chat interface."""
+    stlit.set_page_config(page_title="Fotbot", page_icon="⚽", layout="centered")
+    stlit.title("💬⚽ Soccer stats and prediction")
 
-    # Save user message
-    stlit.session_state.chat_history.append({"role": "user", "content": user_prompt})
+    # Initiate chat history
+    if "chat_history" not in stlit.session_state:
+        stlit.session_state.chat_history = []
 
-    # Get bot response
-    ai_response = run_agents_based_on_keywords(user_prompt)
+    # Show previous messages
+    for message in stlit.session_state.chat_history:
+        with stlit.chat_message(message["role"]):
+            stlit.markdown(message["content"])
 
-    # Display bot message
-    with stlit.chat_message("assistant"):
-        stlit.markdown(ai_response)
+    user_prompt = stlit.chat_input("Ask Fotbot ⚽⚽⚽")
+    if user_prompt:
+        # Display user message
+        with stlit.chat_message("user"):
+            stlit.markdown(user_prompt)
 
-    # Save bot response
-    stlit.session_state.chat_history.append({"role": "assistant", "content": ai_response})
+        # Save user message
+        stlit.session_state.chat_history.append({"role": "user", "content": user_prompt})
+
+        # Get bot response
+        ai_response = run_agents_based_on_keywords(user_prompt)
+
+        # Display bot message
+        with stlit.chat_message("assistant"):
+            stlit.markdown(ai_response)
+
+        # Save bot response
+        stlit.session_state.chat_history.append({"role": "assistant", "content": ai_response})
+
+
+if __name__ == "__main__":
+    # Only run checks when executing Streamlit
+    os.environ["RUNNING_STREAMLIT"] = "1"
+    initialize_agents(run_checks=True)
+    run_streamlit()
