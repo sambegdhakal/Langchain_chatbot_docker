@@ -1,31 +1,25 @@
-from unittest.mock import MagicMock
-from main import run_agents_based_on_keywords,statistics_agent_instance,prediction_agent_instance
+# tests/test_agents_units.py
+from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 
+# Patch top-level code in main.py BEFORE importing
+with patch("main.OllamaEmbeddings") as MockEmbeddings, \
+     patch("main.InMemoryVectorStore") as MockVectorStore, \
+     patch("main.statistics_agent_instance.stream") as mock_stats, \
+     patch("main.prediction_agent_instance.stream") as mock_prediction:
 
-def test_run_agents_statistics(monkeypatch):
-    # Mock agent response
-    monkeypatch.setattr(
-        statistics_agent_instance, 
-        "stream", 
-        MagicMock(return_value=[{"messages": [SimpleNamespace(content="Stats result")]}])
-    )
+    from main import run_agents_based_on_keywords  # import after patching
 
+    # Setup mocks
+    mock_stats.return_value = [{"messages": [SimpleNamespace(content="Stats result")]}]
+    mock_prediction.return_value = [{"messages": [SimpleNamespace(content="Prediction result")]}]
+    MockVectorStore.return_value = MagicMock()
+    MockEmbeddings.return_value = MagicMock()
+
+def test_run_agents_statistics():
     response = run_agents_based_on_keywords("show me player stats")
-    assert "Stats" in response
+    assert "Stats result" in response
 
-def test_run_agents_predictions(monkeypatch):
-    monkeypatch.setattr(
-        statistics_agent_instance, 
-        "stream", 
-        MagicMock(return_value=[{"messages": [SimpleNamespace(content="Stats result")]}])
-    )
-
-    monkeypatch.setattr(
-        prediction_agent_instance, 
-        "stream", 
-        MagicMock(return_value=[{"messages": [SimpleNamespace(content="Prediction result")]}])
-    )
-
+def test_run_agents_predictions():
     response = run_agents_based_on_keywords("Predict who will likely score?")
-    assert "Prediction" in response
+    assert "Prediction result" in response
