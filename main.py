@@ -17,39 +17,51 @@ from tools.team_fixture_result_tool import get_fixture_result_tool
 from agents.stats_agent import statistics_agent
 from agents.prediction_agent import prediction_agent
 
+# Load environment variables
+load_dotenv()
 
 # Globals to be initialized
 statistics_agent_instance = None
 prediction_agent_instance = None
 vector_store = None
 
+def running_in_docker() -> bool:
+    return os.path.exists("/.dockerenv")
+
+OLLAMA_BASE_URL = (
+    "http://host.docker.internal:11434"
+    if running_in_docker()
+    else "http://localhost:11434"
+)
 
 def initialize_agents(run_checks=True,nrows_commentary=50): # if only limited needed
     global statistics_agent_instance, prediction_agent_instance, vector_store
+    
+    # Set base dataset path from environment variable or default
+    DATA_PATH = os.getenv("DATA_PATH", "datasets")
 
     # Only run these checks if Streamlit is running
     if run_checks:
         # Check if .env exists
-        if not os.path.exists(".env"):
-            stlit.error("❌ Missing .env file. Some features may not work.")
+        # GROQ API key
+        groq_key = os.getenv("GROQ_API_KEY")
+        if not groq_key:
+            stlit.error("❌ GROQ_API_KEY not set. Please provide your key in a .env file or via environment variable.")
             stlit.stop()
 
         # Check required dataset folders
         required_dataset_paths = [
-            "datasets/commentary_data",
-            "datasets/playerStats_data",
-            "datasets/base_data"
+            os.path.join(DATA_PATH,"commentary_data"),
+            os.path.join(DATA_PATH,"playerStats_data"),
+            os.path.join(DATA_PATH,"base_data")
         ]
         for path in required_dataset_paths:
             if not os.path.exists(path):
                 stlit.error(f"❌ Error: Required dataset folder missing: {path}\nPlease provide your datasets.")
-                stlit.stop()
+                return
 
-    # Load environment variables
-    load_dotenv()
 
-    # GROQ API key
-    groq_key = os.getenv("GROQ_API_KEY")
+    OLLAMA_HOST = "host.docker.internal" if running_in_docker() else "localhost"
 
     # Initialize LLMs
     llm_statistics = ChatGroq(model="llama-3.1-8b-instant", api_key=groq_key, max_tokens=512)
@@ -57,29 +69,27 @@ def initialize_agents(run_checks=True,nrows_commentary=50): # if only limited ne
     # Alternative: llm_predictions = OllamaLLM(model="qwen3:4b")
 
     # Embeddings & vector store
-    embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+    embeddings = OllamaEmbeddings(model="mxbai-embed-large", base_url=OLLAMA_BASE_URL)
     vector_store = InMemoryVectorStore(embeddings)
 
     # Load CSVs
     df_commentary = pd.read_csv(
-        "datasets/commentary_data/commentary_2025_ENG.1.csv",
+        os.path.join(DATA_PATH,"commentary_data/commentary_2025_ENG.1.csv"),
         nrows=nrows_commentary,
         usecols=["commentaryText"]
     )
-    df_playerstats = pd.read_csv("datasets/playerStats_data/playerStats_2025_ENG.1.csv")
-    df_players = pd.read_csv("datasets/base_data/players.csv", low_memory=False)
-    df_teams = pd.read_csv("datasets/base_data/teams.csv")
-    df_team_standings = pd.read_csv("datasets/base_data/standings.csv")
-    df_venue= pd.read_csv("datasets/base_data/venues.csv")
-    df_leagues= pd.read_csv("datasets/base_data/leagues.csv")
+    df_playerstats = pd.read_csv(os.path.join(DATA_PATH,"playerStats_data/playerStats_2025_ENG.1.csv"))
+    df_players = pd.read_csv(os.path.join(DATA_PATH,"base_data/players.csv"),low_memory=False)
+    df_teams = pd.read_csv(os.path.join(DATA_PATH,"base_data/teams.csv"))
+    df_team_standings = pd.read_csv(os.path.join(DATA_PATH,"base_data/standings.csv"))
+    df_venue= pd.read_csv(os.path.join(DATA_PATH,"base_data/venues.csv"))
+    df_leagues= pd.read_csv(os.path.join(DATA_PATH,"base_data/leagues.csv"))
 
 
     # Merge player stats with player info
     merged_df = df_playerstats.merge(df_players, on="athleteId", how="left")
     merged_df = merged_df.merge(df_teams, on="teamId", how="left")
 
-    # Sort by teamId and timeStamp descending
-    df_sorted = df_team_standings.sort_values(["teamId", "timeStamp"], ascending=[True, False])
 
     # Keep only the first record per teamId (highest timeStamp)
     # Sort team standings by teamId and timeStamp descending
