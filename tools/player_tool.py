@@ -1,6 +1,6 @@
 from langchain.tools import tool
 
-def get_player_stat_tool(vector_store,docs):
+def get_player_stat_tool(vector_store):
     @tool
     def retrieve_stats(query: str):
         """
